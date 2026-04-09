@@ -1,4 +1,5 @@
 import os
+import sys
 import pathlib
 import textwrap
 
@@ -11,19 +12,22 @@ if _env_file.exists():
             os.environ.setdefault(_k.strip(), _v.strip())
 
 from bitgn.harness_connect import HarnessServiceClientSync
-from bitgn.harness_pb2 import EndTrialRequest, EvalPolicy, GetBenchmarkRequest, StartPlaygroundRequest, StatusRequest
+from bitgn.harness_pb2 import EndTrialRequest, SubmitRunRequest, EvalPolicy, StartTrialRequest, GetTrialRequest, GetBenchmarkRequest, StartPlaygroundRequest, StatusRequest, StartRunRequest
 from connectrpc.errors import ConnectError
 
 from agent import run_agent
 
-BITGN_URL = os.getenv("BENCHMARK_HOST") or "https://api.bitgn.com"
-BENCHMARK_ID = os.getenv("BENCHMARK_ID") or "bitgn/pac1-dev"
+BITGN_URL = os.getenv("BITGN_HOST") or "https://api.bitgn.com"
+BITGN_API_KEY = os.getenv("BITGN_API_KEY") or ""
+BENCH_ID = os.getenv("BENCH_ID") or "bitgn/pac1-dev"
 MODEL_ID = os.getenv("MODEL_ID") or "gpt-5.4"
 
-CLI_RED = "\x1B[31m"
-CLI_GREEN = "\x1B[32m"
-CLI_CLR = "\x1B[0m"
-CLI_BLUE = "\x1B[34m"
+USE_COLOR = sys.stdout.isatty()
+
+CLI_RED = "\x1B[31m" if USE_COLOR else ""
+CLI_GREEN = "\x1B[32m" if USE_COLOR else ""
+CLI_CLR = "\x1B[0m" if USE_COLOR else ""
+CLI_BLUE = "\x1B[34m" if USE_COLOR else ""
 
 
 def main() -> None:
@@ -32,38 +36,47 @@ def main() -> None:
     scores = []
     try:
         client = HarnessServiceClientSync(BITGN_URL)
+
         print("Connecting to BitGN", client.status(StatusRequest()))
-        res = client.get_benchmark(GetBenchmarkRequest(benchmark_id=BENCHMARK_ID))
+        res = client.get_benchmark(GetBenchmarkRequest(benchmark_id=BENCH_ID))
         print(
             f"{EvalPolicy.Name(res.policy)} benchmark: {res.benchmark_id} "
             f"with {len(res.tasks)} tasks.\n{CLI_GREEN}{res.description}{CLI_CLR}"
         )
 
-        for task in res.tasks:
-            if task_filter and task.task_id not in task_filter:
-                continue
+        run = client.start_run(StartRunRequest(
+            name="SGR NextStep Sample",
+            benchmark_id=BENCH_ID,
+            api_key=BITGN_API_KEY))
 
-            print(f"{'=' * 30} Starting task: {task.task_id} {'=' * 30}")
-            trial = client.start_playground(
-                StartPlaygroundRequest(
-                    benchmark_id=BENCHMARK_ID,
-                    task_id=task.task_id,
+        try:
+
+            for trial_id in run.trial_ids:
+                trial = client.start_trial(
+                    StartTrialRequest(trial_id=trial_id),
                 )
-            )
 
-            print(f"{CLI_BLUE}{trial.instruction}{CLI_CLR}\n{'-' * 80}")
+                if task_filter and trial.task_id not in task_filter:
+                    continue
 
-            try:
-                run_agent(MODEL_ID, trial.harness_url, trial.instruction)
-            except Exception as exc:
-                print(exc)
+                print(f"{'=' * 30} Starting task: {trial.task_id} {'=' * 30}")
 
-            result = client.end_trial(EndTrialRequest(trial_id=trial.trial_id))
-            if result.score >= 0:
-                scores.append((task.task_id, result.score))
-                style = CLI_GREEN if result.score == 1 else CLI_RED
-                explain = textwrap.indent("\n".join(result.score_detail), "  ")
-                print(f"\n{style}Score: {result.score:0.2f}\n{explain}\n{CLI_CLR}")
+                print(f"{CLI_BLUE}{trial.instruction}{CLI_CLR}\n{'-' * 80}")
+
+                try:
+                    run_agent(MODEL_ID, trial.harness_url, trial.instruction)
+                except Exception as exc:
+                    print(exc)
+
+                result = client.end_trial(EndTrialRequest(trial_id=trial.trial_id))
+                if result.score >= 0:
+                    scores.append((trial.task_id, result.score))
+                    style = CLI_GREEN if result.score == 1 else CLI_RED
+                    explain = textwrap.indent("\n".join(result.score_detail), "  ")
+                    print(f"\n{style}Score: {result.score:0.2f}\n{explain}\n{CLI_CLR}")
+
+        finally:
+            client.submit_run(SubmitRunRequest(run_id=run.run_id, force=True))
 
     except ConnectError as exc:
         print(f"{exc.code}: {exc.message}")
