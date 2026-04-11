@@ -160,6 +160,7 @@ class NextStep(BaseModel):
 # ---------------------------------------------------------------------------
 
 INJECTION_PATTERNS = [
+    # ---- English ----
     r"(?i)ignore\s+(all\s+)?(previous|above|prior|earlier)\s+(instructions?|rules?|prompts?|guidelines?)",
     r"(?i)disregard\s+(all\s+)?(previous|above|prior|earlier)\s+(instructions?|rules?|prompts?)",
     r"(?i)forget\s+(all\s+)?(previous|above|prior|earlier)\s+(instructions?|rules?|prompts?)",
@@ -169,20 +170,81 @@ INJECTION_PATTERNS = [
     r"(?i)switch\s+(to|into)\s+(a\s+)?(new|different)\s+(role|mode|persona)",
     r"(?i)enter\s+(a\s+)?(new|different|special|admin|developer|debug)\s+mode",
     r"(?i)(show|reveal|print|output|display|repeat|echo)\s+(me\s+)?(your|the)\s+(system\s+)?(prompt|instructions?|rules?|guidelines?)",
+    # ---- Delimiters / markup injection ----
     r"(?i)<\/?system>",
     r"(?i)\[SYSTEM\]",
     r"(?i)\[INST\]",
     r"(?i)```\s*system",
     r"(?i)###\s*(system|instruction|new\s+task)",
+    # ---- Outcome manipulation ----
     r"(?i)(always|must)\s+(return|report|use|respond\s+with)\s+OUTCOME_OK",
     r"(?i)(change|set|force)\s+(the\s+)?outcome\s+to",
+    # ---- Encoding tricks ----
     r"(?i)(encode|base64|hex|rot13).{0,30}(content|file|data|secret)",
+    # ---- Path traversal ----
     r"\.\./\.\.",
+    # ---- Invisible/zero-width characters ----
     r"[\u200b\u200c\u200d\u2060\ufeff]{3,}",
-    # Social-engineering "trusted relay/bridge" patterns (indices 19, 20, 21)
+    # ---- Trusted relay/bridge social engineering ----
     r"(?i)(this\s+instruction|message|content)\s+(was|is|has\s+been)\s+(mirrored|relayed|forwarded|bridged).{0,60}(trusted|operational|authoritative)",
     r"(?i)(internal|secure|trusted)\s+(bridge|relay|channel|pipe).{0,60}(treat|consider|process).{0,30}(trusted|authorized|legitimate)",
     r"(?i)(treat|process|consider)\s+.{0,40}(trusted|authorized|operational)\s+(guidance|instruction|directive)",
+    # ---- Russian ----
+    r"игнорируй\s+(все\s+)?(предыдущие|прошлые|ранние)\s+(инструкции|правила|указания)",
+    r"забудь\s+(все\s+)?(предыдущие|прошлые)\s+(инструкции|правила|указания)",
+    r"ты\s+теперь\s+.{0,30}(ассистент|агент|бот|система|роль)",
+    r"притворись\s+(что\s+ты|будто\s+ты)\s+",
+    r"(покажи|выведи|повтори)\s+(мне\s+)?(свой|системный)\s+(промпт|инструкции|правила)",
+    # ---- German ----
+    r"(?i)ignoriere\s+(alle\s+)?(vorherigen|früheren)\s+(anweisungen|regeln|hinweise)",
+    r"(?i)vergiss\s+(alle\s+)?(vorherigen|früheren)\s+(anweisungen|regeln)",
+    r"(?i)du\s+bist\s+jetzt\s+(ein|eine|der|die|das)\s+",
+    r"(?i)(zeige|gib\s+aus|wiederhole)\s+(mir\s+)?(deine|den\s+system)\s*(prompt|anweisungen|regeln)",
+    # ---- French ----
+    r"(?i)ignore[sz]?\s+(toutes?\s+)?(les\s+)?(instructions?|règles?|consignes?)\s+(précédentes?|antérieures?)",
+    r"(?i)oublie[sz]?\s+(toutes?\s+)?(les\s+)?(instructions?|règles?|consignes?)",
+    r"(?i)tu\s+es\s+maintenant\s+(un|une|le|la)\s+",
+    r"(?i)(montre|affiche|répète)\s+(moi\s+)?(ton|le)\s+(prompt|instructions?|système)",
+    # ---- Spanish ----
+    r"(?i)ignora[sr]?\s+(todas?\s+)?(las\s+)?(instrucciones?|reglas?|pautas?)\s+(anteriores?|previas?)",
+    r"(?i)olvida[sr]?\s+(todas?\s+)?(las\s+)?(instrucciones?|reglas?)",
+    r"(?i)(eres|ahora\s+eres)\s+(un|una)\s+",
+    r"(?i)(muestra|imprime|repite)\s+(tu|el)\s+(prompt|instrucciones?|sistema)",
+    # ---- Portuguese ----
+    r"(?i)ignora[mr]?\s+(todas?\s+)?(as\s+)?(instruções|regras|diretrizes)\s+(anteriores?|prévias?)",
+    r"(?i)esqueça\s+(todas?\s+)?(as\s+)?(instruções|regras)",
+    r"(?i)(você\s+é|és)\s+agora\s+(um|uma)\s+",
+    # ---- Italian ----
+    r"(?i)ignora[re]?\s+(tutte?\s+)?(le\s+)?(istruzioni|regole)\s+(precedenti|anteriori)",
+    r"(?i)dimentica[re]?\s+(tutte?\s+)?(le\s+)?(istruzioni|regole)",
+    r"(?i)(sei|ora\s+sei)\s+(un|una)\s+",
+    # ---- Dutch ----
+    r"(?i)negeer\s+(alle\s+)?(vorige|eerdere)\s+(instructies|regels|richtlijnen)",
+    r"(?i)vergeet\s+(alle\s+)?(vorige|eerdere)\s+(instructies|regels)",
+    r"(?i)je\s+bent\s+nu\s+(een|de)\s+",
+    # ---- Chinese (Simplified) ----
+    r"忽略.{0,10}(之前|前面|所有).{0,10}(指令|规则|提示|说明)",
+    r"忘记.{0,10}(之前|前面|所有).{0,10}(指令|规则|提示)",
+    r"你现在是.{0,20}(助手|机器人|系统|角色)",
+    r"(显示|输出|重复).{0,10}(你的|系统).{0,10}(提示|指令|规则)",
+    # ---- Chinese (Traditional) ----
+    r"忽略.{0,10}(之前|前面|所有).{0,10}(指令|規則|提示|說明)",
+    r"忘記.{0,10}(之前|前面).{0,10}(指令|規則)",
+    r"你現在是.{0,20}(助手|機器人|系統)",
+    # ---- Japanese ----
+    r"以前の.{0,10}(指示|ルール|プロンプト).{0,10}(無視|忘れ)",
+    r"(あなたは|君は)今.{0,10}(です|である).{0,20}(ふりをして|として行動)",
+    r"システム(プロンプト|指示).{0,10}(表示|出力|繰り返)",
+    # ---- Arabic ----
+    r"تجاهل.{0,20}(التعليمات|القواعد|الإرشادات).{0,20}(السابقة|الأولى)",
+    r"انسَ.{0,20}(التعليمات|القواعد)\s*(السابقة)?",
+    r"أنت الآن.{0,30}(مساعد|نظام|روبوت|دور)",
+    # ---- Korean ----
+    r"이전\s*(지시|규칙|프롬프트).{0,10}(무시|잊어)",
+    r"당신은\s*이제\s*.{0,20}(입니다|이에요|역할)",
+    # ---- Hindi ----
+    r"पिछले\s*(निर्देश|नियम).{0,10}(अनदेखा|भूल)",
+    r"अब\s*तुम\s*.{0,20}(हो|बनो)",
 ]
 
 _HIGH_CONFIDENCE_PATTERNS = {
