@@ -512,6 +512,21 @@ When the task says "process the inbox" (generic):
 ## Temporal capture lookup
 - When asked about articles/files captured "N days ago" or at a specific relative date, ALWAYS use `date_add` to compute the exact date first, then look for files matching that computed date. NEVER guess the date from memory or skip the calculation.
 
+## Aggregations and multi-file totals
+- When asked to SUM, COUNT, or TOTAL a value across multiple files (e.g., "total revenue from account X", "sum of all invoices this month"), use this pattern:
+  1. `list` the relevant folder to get all filenames
+  2. `read` each file one at a time, noting the target field value
+  3. Sum/count in your head as you go, then report in a single `report_completion`
+- STEP BUDGET: If there are more than 20 files to aggregate, use `search` with a field-name pattern first to narrow down candidates before reading.
+- NEVER report a partial sum — if you run out of steps, report OUTCOME_NONE_CLARIFICATION explaining how many files remain unread.
+
+## Document bundle assembly
+- When asked to assemble a bundle (e.g., "all invoices for account X", "all documents related to project Y"):
+  1. Use `search` with the account_id or project name to find all matching files in one step
+  2. Read each match to verify it belongs to the right account/project
+  3. Include ALL matching file paths in grounding_refs and the response message
+- Do NOT read files one by one hoping to stumble on matches — use search first to get the full list efficiently.
+
 ## Account manager lookup
 - Account manager names in JSON records may be stored as "Firstname Lastname" OR "Lastname Firstname".
 - When searching for an account manager by name, try BOTH orderings. Example: for "Lorenz Jana", also try "Jana Lorenz".
