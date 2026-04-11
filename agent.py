@@ -438,8 +438,9 @@ Use the runtime `context` grounding result as the source of truth for current da
 
 ## First steps
 1. Run `tree` first to see the full repo structure.
-2. Read `/AGENTS.md` early — it has naming conventions and folder purposes.
-3. If `/02_distill/AGENTS.md` exists, read it too.
+2. Use the `read` tool (NOT `list`) to read `/AGENTS.md` — it has naming conventions and folder purposes.
+3. If nested `AGENTS.md`/`AGENTS.MD` files exist in subfolders, read them too with the `read` tool.
+4. IMPORTANT: `AGENTS.md` is a FILE — always use `read` to open it, never `list`.
 
 ## Efficiency rules
 - ALWAYS use `search` to find contacts/accounts by name instead of reading files one by one. Example: search pattern "Alex Meyer" in /contacts/.
@@ -454,7 +455,15 @@ Use the runtime `context` grounding result as the source of truth for current da
 
 ## File operations
 - All paths must start with `/`. Use `/00_inbox/file.md`, not `00_inbox/file.md`.
-- NEVER use `read` on a directory path (e.g., `/contacts`, `/accounts`, `/`). The `read` tool is for FILES ONLY. To see directory contents use `list`. To find content inside files use `search`. Reading a directory will return garbage and waste steps.
+- TOOL SELECTION RULE: `read` is for FILES, `list` is for DIRECTORIES. NEVER mix them up:
+  - `read path=/folder/file.md` ✓ — reads a file
+  - `list path=/folder/` ✓ — lists directory contents
+  - `read path=/folder/` ✗ — WRONG: read on a directory returns garbage
+  - `list path=/folder/file.md` ✗ — WRONG: list on a file returns an error
+  If a path ends with `.md`, `.json`, `.txt`, `.yaml` → it's a FILE → use `read`.
+  If a path has no extension or looks like a folder → use `list`.
+- NEVER use `delete` to recover from a tool error. If `read` or `list` fails, try the OTHER tool. `delete` destroys data permanently.
+- NEVER delete system files: AGENTS.md, AGENTS.MD, README.md, README.MD, CLAUDE.md, soul.md. These are infrastructure — read or update them, never delete.
 - After a `move`, verify with `list` or `find`.
 - Keep edits small and targeted. Do not touch files unrelated to the task.
 - FOCUSED DIFF: When the task says "keep the diff focused" (or similar), make ONLY the minimum writes directly required to fix the stated bug/regression. Every extra file write beyond what's strictly needed is an error. Do NOT make "optional", "alignment", "cleanup", or "nice-to-have" writes to other files. If a file is disabled, irrelevant, or only tangentially related — leave it untouched. Fix the one thing, then stop.
@@ -929,35 +938,77 @@ def run_agent(model: str, harness_url: str, task_text: str, sink: list[str] | No
 
         emit(f"{job.plan_remaining_steps_brief[0]} ({elapsed_ms}ms) -> {job.function.model_dump_json()}")
 
-        # Block deletion of protected infrastructure files (seq.json, reminders)
+        # ── Guardrail: block delete of protected/system files ──
         if isinstance(job.function, Req_Delete):
             del_path_lower = job.function.path.lower().rstrip("/")
+            del_basename = del_path_lower.rsplit("/", 1)[-1] if "/" in del_path_lower else del_path_lower
             is_protected = (
                 del_path_lower.endswith("seq.json")
                 or "/reminders/rem_" in del_path_lower
                 or del_path_lower.endswith("/reminders")
             )
-            if is_protected:
-                emit(f"    {CLI_RED}BLOCKED delete of protected file: {job.function.path}{CLI_CLR}")
+            is_system_file = del_basename in (
+                "agents.md", "agents.md", "claude.md", "readme.md",
+                "soul.md", "agent_preferences.md", "agent_changelog.md",
+            )
+            if is_protected or is_system_file:
+                emit(f"    {CLI_RED}BLOCKED delete: {job.function.path}{CLI_CLR}")
                 append_action_log(log, job)
                 append_result_log(log, job.function.tool,
-                    f"BLOCKED: Cannot delete protected infrastructure file '{job.function.path}'. "
-                    f"Use 'write' to update seq.json or reminder files — never 'delete'.")
+                    f"BLOCKED: Cannot delete '{job.function.path}' — it is a protected system/infrastructure file. "
+                    f"System files (AGENTS.md, README.MD, soul.md, seq.json, reminders) must NEVER be deleted. "
+                    f"If you need to read this file, use the `read` tool. "
+                    f"If you need to update it, use the `write` tool.")
                 continue
 
-        # Intercept repeated reads on the same path (directory-read loop detection)
+        # ── Guardrail: auto-convert `list` on a file path → `read` ──
+        if isinstance(job.function, Req_List):
+            list_path = job.function.path.rstrip("/")
+            list_basename = list_path.rsplit("/", 1)[-1] if "/" in list_path else list_path
+            if "." in list_basename and list_basename.split(".")[-1].lower() in (
+                "md", "txt", "json", "yaml", "yml", "csv", "toml", "xml", "html",
+            ):
+                emit(f"    {CLI_YELLOW}AUTO-FIX: list→read for file '{list_path}'{CLI_CLR}")
+                # Silently convert to a read operation
+                job.function = Req_Read(tool="read", path=list_path)
+
+        # ── Guardrail: repeated reads on same path (directory-read loop) ──
         if isinstance(job.function, Req_Read):
             rpath = job.function.path.rstrip("/")
             _read_path_counts[rpath] = _read_path_counts.get(rpath, 0) + 1
             if _read_path_counts[rpath] >= 2:
-                emit(f"    {CLI_YELLOW}REPEATED read on '{rpath}' — likely a directory{CLI_CLR}")
+                emit(f"    {CLI_YELLOW}REPEATED read on '{rpath}'{CLI_CLR}")
                 append_action_log(log, job)
                 append_result_log(log, job.function.tool,
-                    f"ERROR: You already read '{rpath}' — it returned non-file content. "
-                    f"This path is likely a DIRECTORY, not a file. "
-                    f"Use `list` to see directory contents, or `search` with a pattern to find specific content inside files. "
-                    f"Example: search pattern='keyword' root='{rpath}' — or list path='{rpath}'.")
+                    f"ERROR: You already read '{rpath}' and it returned an error or non-file content. "
+                    f"This path is likely a DIRECTORY. "
+                    f"Use `list` to see directory contents, or `search` to find content inside files. "
+                    f"Example: list path='{rpath}' — or search pattern='keyword' root='{rpath}'.")
                 continue
+
+        # ── Guardrail: error-loop breaker ──
+        # If the last 2 tool results both contain the same error, force a different approach
+        if len(log) >= 4:
+            last_two_results = [
+                msg.get("content", "") for msg in log[-4:]
+                if msg.get("role") == "user" and "ERROR:" in msg.get("content", "")
+            ]
+            if len(last_two_results) >= 2:
+                # Check if consecutive errors are about the same path/operation
+                if last_two_results[-1][:80] == last_two_results[-2][:80]:
+                    emit(f"    {CLI_YELLOW}ERROR LOOP detected — injecting recovery hint{CLI_CLR}")
+                    log.append({
+                        "role": "user",
+                        "content": (
+                            "SYSTEM NOTICE: You are stuck in an error loop — the same operation has failed multiple times. "
+                            "STOP retrying the same action. Change your approach:\n"
+                            "- If `list` fails on a path → it's a file, use `read` instead\n"
+                            "- If `read` fails on a path → it's a directory, use `list` instead\n"
+                            "- If you cannot find a file → use `search` or `find` with a broader pattern\n"
+                            "- NEVER use `delete` to fix tool errors — that destroys data\n"
+                            "Choose a DIFFERENT tool for your next step."
+                        ),
+                    })
 
         # Security check on writes
         if isinstance(job.function, Req_Write):
@@ -1023,9 +1074,36 @@ def run_agent(model: str, harness_url: str, task_text: str, sink: list[str] | No
             txt = format_result(job.function, result)
             _read_full_content = result.content if isinstance(job.function, Req_Read) else None
         except ConnectError as exc:
-            txt = str(exc.message)
-            _read_full_content = None
-            emit(f"    {CLI_RED}ERR {exc.code}: {exc.message}{CLI_CLR}")
+            # Auto-recover: "must reference a folder" → was list on file, retry as read
+            if "must reference a folder" in str(exc.message) and isinstance(job.function, Req_List):
+                emit(f"    {CLI_YELLOW}AUTO-FIX: list→read for '{job.function.path}'{CLI_CLR}")
+                read_cmd = Req_Read(tool="read", path=job.function.path)
+                try:
+                    result = dispatch(vm, read_cmd)
+                    txt = format_result(read_cmd, result)
+                    _read_full_content = result.content
+                    job.function = read_cmd  # so downstream checks see Req_Read
+                except ConnectError as exc2:
+                    txt = str(exc2.message)
+                    _read_full_content = None
+                    emit(f"    {CLI_RED}ERR {exc2.code}: {exc2.message}{CLI_CLR}")
+            # Auto-recover: "must reference a file" → was read on dir, retry as list
+            elif "must reference a file" in str(exc.message) and isinstance(job.function, Req_Read):
+                emit(f"    {CLI_YELLOW}AUTO-FIX: read→list for '{job.function.path}'{CLI_CLR}")
+                list_cmd = Req_List(tool="list", path=job.function.path)
+                try:
+                    result = dispatch(vm, list_cmd)
+                    txt = format_result(list_cmd, result)
+                    _read_full_content = None
+                    job.function = list_cmd
+                except ConnectError as exc2:
+                    txt = str(exc2.message)
+                    _read_full_content = None
+                    emit(f"    {CLI_RED}ERR {exc2.code}: {exc2.message}{CLI_CLR}")
+            else:
+                txt = str(exc.message)
+                _read_full_content = None
+                emit(f"    {CLI_RED}ERR {exc.code}: {exc.message}{CLI_CLR}")
 
         # Capture inbox-related docs and messages for compliance checking
         if is_inbox_task and isinstance(job.function, Req_Read) and txt:
